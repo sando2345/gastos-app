@@ -6,7 +6,7 @@ import {
   createTransactionSchema,
   updateTransactionSchema,
   transactionFiltersSchema,
-} from '../../../packages/shared/src/validations/transaction'
+} from '../validations/transaction'
 
 const router = Router()
 
