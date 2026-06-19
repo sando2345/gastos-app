@@ -3,7 +3,7 @@ import type {
   CreateTransactionInput,
   UpdateTransactionInput,
   TransactionFiltersInput,
-} from '../../../packages/shared/src/validations/transaction'
+} from '../validations/transaction'
 
 const prisma = new PrismaClient()
 
