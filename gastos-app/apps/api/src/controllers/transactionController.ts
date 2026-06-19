@@ -1,7 +1,7 @@
 import { Response } from 'express'
 import { AuthRequest } from '../middleware/auth'
 import { transactionService } from '../services/transactionService'
-import type { TransactionFiltersInput } from '../../../packages/shared/src/validations/transaction'
+import type { TransactionFiltersInput } from '../validations/transaction'
 
 export const transactionController = {
   async list(req: AuthRequest, res: Response) {
