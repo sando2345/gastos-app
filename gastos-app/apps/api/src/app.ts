@@ -10,7 +10,14 @@ const app = express()
 
 app.use(helmet())
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') ?? ['http://localhost:5173'],
+  origin: (origin, callback) => {
+    const allowed = process.env.ALLOWED_ORIGINS?.split(',') ?? []
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
   credentials: true,
 }))
 app.use(express.json())
