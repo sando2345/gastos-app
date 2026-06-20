@@ -40,6 +40,7 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
     return res.json({
       data: {
         totalIncome: 0, totalExpenses: 0, totalNormalExpenses: 0, totalExtras: 0,
+        totalBudget: 0, totalFixed: 0, totalVariable: 0,
         balance: 0, byCategory: [], monthlyTrend: []
       }
     })
@@ -49,6 +50,11 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
       where: { userId: req.userId!, periodId: periodId as string },
       include: { category: true },
     })
+
+    const budgets = await prisma.budget.findMany({
+      where: { userId: req.userId!, periodId: periodId as string },
+    })
+    const totalBudget = budgets.reduce((s, b) => s + Number(b.amount), 0)
 
     const totalIncome = transactions
       .filter(t => t.type === 'income')
@@ -60,6 +66,11 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
       .reduce((s, t) => s + Number(t.amount), 0)
     const totalExpenses = expenses.reduce((s, t) => s + Number(t.amount), 0)
     const totalNormalExpenses = totalExpenses - totalExtras
+
+    const totalFixed = expenses
+      .filter(t => t.isFixed)
+      .reduce((s, t) => s + Number(t.amount), 0)
+    const totalVariable = totalExpenses - totalFixed
 
     const byCategory = Object.values(
       expenses.reduce((acc, t) => {
@@ -96,6 +107,7 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
     res.json({
       data: {
         totalIncome, totalExpenses, totalNormalExpenses, totalExtras,
+        totalBudget, totalFixed, totalVariable,
         balance: totalIncome - totalExpenses,
         byCategory, monthlyTrend,
       }
