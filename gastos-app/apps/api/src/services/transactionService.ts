@@ -129,7 +129,7 @@ export const transactionService = {
           SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END)::float as income,
           SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END)::float as expenses
         FROM transactions
-        WHERE user_id = ${userId}
+        WHERE user_id = ${userId}::uuid
           AND date >= ${new Date(year, month - 7, 1)}
           AND date <= ${endDate}
         GROUP BY TO_CHAR(date, 'YYYY-MM')
