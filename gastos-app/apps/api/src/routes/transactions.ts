@@ -8,7 +8,7 @@ const prisma = new PrismaClient()
 router.use(authenticate)
 
 router.get('/', async (req: AuthRequest, res) => {
-  const { type, categoryId } = req.query
+  const { type, categoryId, periodId } = req.query
   const page = Number(req.query.page) || 1
   const limit = Number(req.query.limit) || 50
   try {
@@ -16,6 +16,7 @@ router.get('/', async (req: AuthRequest, res) => {
       userId: req.userId!,
       ...(type && { type: type as any }),
       ...(categoryId && { categoryId: categoryId as string }),
+      ...(periodId && { periodId: periodId as string }),
     }
     const [transactions, total] = await Promise.all([
       prisma.transaction.findMany({
@@ -33,15 +34,19 @@ router.get('/', async (req: AuthRequest, res) => {
 })
 
 router.get('/dashboard', async (req: AuthRequest, res) => {
-  const month = Number(req.query.month) || new Date().getMonth() + 1
-  const year = Number(req.query.year) || new Date().getFullYear()
+  const { periodId } = req.query
   const EXTRA_CATEGORY_ID = '00000000-0000-0000-0000-000000000099'
+  if (!periodId) {
+    return res.json({
+      data: {
+        totalIncome: 0, totalExpenses: 0, totalNormalExpenses: 0, totalExtras: 0,
+        balance: 0, byCategory: [], monthlyTrend: []
+      }
+    })
+  }
   try {
-    const startDate = new Date(year, month - 1, 1)
-    const endDate = new Date(year, month, 0)
-
     const transactions = await prisma.transaction.findMany({
-      where: { userId: req.userId!, date: { gte: startDate, lte: endDate } },
+      where: { userId: req.userId!, periodId: periodId as string },
       include: { category: true },
     })
 
@@ -71,18 +76,22 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
       }, {} as Record<string, any>)
     ).sort((a: any, b: any) => b.total - a.total)
 
-    const monthlyTrend = await prisma.$queryRaw<any[]>`
-      SELECT
-        TO_CHAR(date, 'YYYY-MM') as month,
-        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END)::float as income,
-        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END)::float as expenses
-      FROM transactions
-      WHERE user_id = ${req.userId}::uuid
-        AND date >= ${new Date(year, month - 7, 1)}
-        AND date <= ${endDate}
-      GROUP BY TO_CHAR(date, 'YYYY-MM')
-      ORDER BY month ASC
-    `
+    const periods = await prisma.period.findMany({
+      where: { userId: req.userId! },
+      orderBy: { startDate: 'desc' },
+      take: 6,
+    })
+    const monthlyTrend = []
+    for (const p of periods.reverse()) {
+      const txs = await prisma.transaction.findMany({
+        where: { userId: req.userId!, periodId: p.id },
+      })
+      monthlyTrend.push({
+        month: p.name,
+        income: txs.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0),
+        expenses: txs.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0),
+      })
+    }
 
     res.json({
       data: {
@@ -98,31 +107,24 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
 })
 
 router.post('/copy-fixed', async (req: AuthRequest, res) => {
-  const { month, year } = req.body
-  if (!month || !year) {
-    return res.status(400).json({ error: 'Mes y año requeridos' })
+  const { fromPeriodId, toPeriodId } = req.body
+  if (!fromPeriodId || !toPeriodId) {
+    return res.status(400).json({ error: 'Período origen y destino requeridos' })
   }
   try {
-    let prevMonth = Number(month) - 1
-    let prevYear = Number(year)
-    if (prevMonth === 0) { prevMonth = 12; prevYear -= 1 }
-
-    const prevStart = new Date(prevYear, prevMonth - 1, 1)
-    const prevEnd = new Date(prevYear, prevMonth, 0)
+    const toPeriod = await prisma.period.findFirst({
+      where: { id: toPeriodId, userId: req.userId! }
+    })
+    if (!toPeriod) return res.status(404).json({ error: 'Período destino no encontrado' })
 
     const fixedExpenses = await prisma.transaction.findMany({
-      where: {
-        userId: req.userId!,
-        isFixed: true,
-        date: { gte: prevStart, lte: prevEnd },
-      }
+      where: { userId: req.userId!, isFixed: true, periodId: fromPeriodId }
     })
 
     if (fixedExpenses.length === 0) {
-      return res.json({ data: [], message: 'No hay gastos fijos en el mes anterior' })
+      return res.json({ data: [], message: 'No hay gastos fijos en el período origen' })
     }
 
-    const newDate = new Date(Number(year), Number(month) - 1, 1)
     const created = await prisma.transaction.createMany({
       data: fixedExpenses.map(t => ({
         userId: req.userId!,
@@ -130,10 +132,11 @@ router.post('/copy-fixed', async (req: AuthRequest, res) => {
         type: t.type,
         amount: t.amount,
         description: t.description,
-        date: newDate,
+        date: toPeriod.startDate,
         paymentMethod: t.paymentMethod,
         notes: t.notes,
         isFixed: true,
+        periodId: toPeriodId,
       }))
     })
 
@@ -145,7 +148,7 @@ router.post('/copy-fixed', async (req: AuthRequest, res) => {
 })
 
 router.post('/', async (req: AuthRequest, res) => {
-  const { categoryId, type, amount, description, date, paymentMethod, notes, isFixed } = req.body
+  const { categoryId, type, amount, description, date, paymentMethod, notes, isFixed, periodId } = req.body
   if (!categoryId || !type || !amount || !description || !date) {
     return res.status(400).json({ error: 'Faltan campos requeridos' })
   }
@@ -160,17 +163,14 @@ router.post('/', async (req: AuthRequest, res) => {
         paymentMethod: paymentMethod || 'cash',
         notes: notes || null,
         isFixed: isFixed || false,
+        periodId: periodId || null,
       },
       include: { category: true }
     })
 
-    if (type === 'expense') {
-      const d = new Date(date)
+    if (type === 'expense' && periodId) {
       await prisma.budget.updateMany({
-        where: {
-          userId: req.userId!, categoryId,
-          month: d.getMonth() + 1, year: d.getFullYear(),
-        },
+        where: { userId: req.userId!, categoryId, periodId },
         data: { spent: { increment: new Prisma.Decimal(amount) } }
       })
     }
@@ -183,7 +183,7 @@ router.post('/', async (req: AuthRequest, res) => {
 })
 
 router.patch('/:id', async (req: AuthRequest, res) => {
-  const { categoryId, type, amount, description, date, paymentMethod, notes, isFixed } = req.body
+  const { categoryId, type, amount, description, date, paymentMethod, notes, isFixed, periodId } = req.body
   try {
     const existing = await prisma.transaction.findFirst({
       where: { id: req.params.id, userId: req.userId! }
@@ -201,6 +201,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         ...(paymentMethod && { paymentMethod }),
         ...(notes !== undefined && { notes }),
         ...(isFixed !== undefined && { isFixed }),
+        ...(periodId !== undefined && { periodId }),
       },
       include: { category: true }
     })
@@ -220,13 +221,9 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 
     await prisma.transaction.delete({ where: { id: req.params.id } })
 
-    if (existing.type === 'expense') {
-      const d = new Date(existing.date)
+    if (existing.type === 'expense' && existing.periodId) {
       await prisma.budget.updateMany({
-        where: {
-          userId: req.userId!, categoryId: existing.categoryId,
-          month: d.getMonth() + 1, year: d.getFullYear(),
-        },
+        where: { userId: req.userId!, categoryId: existing.categoryId, periodId: existing.periodId },
         data: { spent: { decrement: existing.amount } }
       })
     }

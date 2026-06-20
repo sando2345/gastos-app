@@ -25,13 +25,14 @@ model User {
   email        String   @unique
   passwordHash String   @map("password_hash")
   fullName     String   @map("full_name")
-  currency     String   @default("USD")
+  currency     String   @default("CLP")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   transactions Transaction[]
   categories   Category[]
   budgets      Budget[]
+  periods      Period[]
 
   @@map("users")
 }
@@ -53,10 +54,28 @@ model Category {
   @@map("categories")
 }
 
+model Period {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@index([userId, startDate])
+  @@map("periods")
+}
+
 model Transaction {
   id            String          @id @default(uuid())
   userId        String          @map("user_id")
   categoryId    String          @map("category_id")
+  periodId      String?         @map("period_id")
   type          TransactionType
   amount        Decimal         @db.Decimal(12, 2)
   description   String
@@ -69,9 +88,11 @@ model Transaction {
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   category Category @relation(fields: [categoryId], references: [id])
+  period   Period?  @relation(fields: [periodId], references: [id], onDelete: SetNull)
 
   @@index([userId, date])
   @@index([userId, type])
+  @@index([periodId])
   @@map("transactions")
 }
 
@@ -79,6 +100,7 @@ model Budget {
   id         String   @id @default(uuid())
   userId     String   @map("user_id")
   categoryId String   @map("category_id")
+  periodId   String?  @map("period_id")
   amount     Decimal  @db.Decimal(12, 2)
   month      Int
   year       Int
@@ -88,6 +110,7 @@ model Budget {
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   category Category @relation(fields: [categoryId], references: [id])
+  period   Period?  @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
   @@unique([userId, categoryId, month, year])
   @@map("budgets")

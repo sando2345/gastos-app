@@ -8,15 +8,11 @@ const prisma = new PrismaClient()
 router.use(authenticate)
 
 router.get('/', async (req: AuthRequest, res) => {
-  const month = Number(req.query.month) || new Date().getMonth() + 1
-  const year = Number(req.query.year) || new Date().getFullYear()
+  const { periodId } = req.query
+  if (!periodId) return res.json({ data: [] })
   try {
     const budgets = await prisma.budget.findMany({
-      where: { 
-        userId: String(req.userId),
-        month: Number(month), 
-        year: Number(year) 
-      },
+      where: { userId: req.userId!, periodId: periodId as string },
       include: { category: true },
       orderBy: { createdAt: 'desc' }
     })
@@ -28,26 +24,34 @@ router.get('/', async (req: AuthRequest, res) => {
 })
 
 router.post('/', async (req: AuthRequest, res) => {
-  const { categoryId, amount, month, year } = req.body
-  if (!categoryId || !amount || !month || !year) {
-    return res.status(400).json({ error: 'Faltan campos requeridos' })
+  const { categoryId, amount, periodId } = req.body
+  if (!categoryId || !amount || !periodId) {
+    return res.status(400).json({ error: 'Categoría, monto y período requeridos' })
   }
   try {
+    const period = await prisma.period.findFirst({
+      where: { id: periodId, userId: req.userId! }
+    })
+    if (!period) return res.status(404).json({ error: 'Período no encontrado' })
+
+    const end = new Date(period.endDate)
     const budget = await prisma.budget.create({
       data: {
         userId: req.userId!,
         categoryId,
         amount: new Prisma.Decimal(amount),
-        month: Number(month),
-        year: Number(year),
+        month: end.getMonth() + 1,
+        year: end.getFullYear(),
+        periodId,
       },
       include: { category: true }
     })
     res.status(201).json({ data: budget, message: 'Presupuesto creado' })
   } catch (err: any) {
     if (err.code === 'P2002') {
-      return res.status(409).json({ error: 'Ya existe un presupuesto para esa categoría en ese mes' })
+      return res.status(409).json({ error: 'Ya existe un presupuesto para esa categoría en este período' })
     }
+    console.error(err)
     res.status(500).json({ error: 'Error al crear presupuesto' })
   }
 })
@@ -55,13 +59,24 @@ router.post('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   const { amount } = req.body
   try {
-    const budget = await prisma.budget.updateMany({
+    await prisma.budget.updateMany({
       where: { id: req.params.id, userId: req.userId! },
       data: { amount: new Prisma.Decimal(amount) }
     })
-    res.json({ data: budget })
+    res.json({ message: 'Presupuesto actualizado' })
   } catch (err) {
     res.status(500).json({ error: 'Error al actualizar presupuesto' })
+  }
+})
+
+router.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    await prisma.budget.deleteMany({
+      where: { id: req.params.id, userId: req.userId! }
+    })
+    res.json({ message: 'Presupuesto eliminado' })
+  } catch (err) {
+    res.status(500).json({ error: 'Error al eliminar presupuesto' })
   }
 })
 
