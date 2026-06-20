@@ -63,6 +63,7 @@ model Transaction {
   date          DateTime        @db.Date
   paymentMethod PaymentMethod   @default(cash) @map("payment_method")
   notes         String?
+  isFixed       Boolean         @default(false) @map("is_fixed")
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
 
