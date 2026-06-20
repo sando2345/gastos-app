@@ -12,12 +12,17 @@ router.get('/', async (req: AuthRequest, res) => {
   const year = Number(req.query.year) || new Date().getFullYear()
   try {
     const budgets = await prisma.budget.findMany({
-      where: { userId: req.userId!, month, year },
+      where: { 
+        userId: String(req.userId),
+        month: Number(month), 
+        year: Number(year) 
+      },
       include: { category: true },
       orderBy: { createdAt: 'desc' }
     })
     res.json({ data: budgets })
   } catch (err) {
+    console.error(err)
     res.status(500).json({ error: 'Error al obtener presupuestos' })
   }
 })
