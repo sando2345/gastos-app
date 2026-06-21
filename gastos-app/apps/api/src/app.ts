@@ -6,6 +6,7 @@ import transactionRoutes from './routes/transactions'
 import categoryRoutes from './routes/categories'
 import budgetRoutes from './routes/budgets'
 import periodRoutes from './routes/periods'
+import budgetTemplateRoutes from './routes/budgetTemplates'
 
 const app = express()
 
@@ -28,6 +29,7 @@ app.use('/api/transactions', transactionRoutes)
 app.use('/api/categories', categoryRoutes)
 app.use('/api/budgets', budgetRoutes)
 app.use('/api/periods', periodRoutes)
+app.use('/api/budget-templates', budgetTemplateRoutes)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })

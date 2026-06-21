@@ -11,11 +11,75 @@ router.get('/', async (req: AuthRequest, res) => {
   const { periodId } = req.query
   if (!periodId) return res.json({ data: [] })
   try {
-    const budgets = await prisma.budget.findMany({
+    // Verificar si el período ya tiene presupuestos
+    let budgets = await prisma.budget.findMany({
       where: { userId: req.userId!, periodId: periodId as string },
       include: { category: true },
       orderBy: { createdAt: 'desc' }
     })
+
+    // Si no tiene presupuestos, generarlos desde la plantilla base
+    if (budgets.length === 0) {
+      const templates = await prisma.budgetTemplate.findMany({
+        where: { userId: req.userId! }
+      })
+
+      if (templates.length > 0) {
+        const period = await prisma.period.findFirst({
+          where: { id: periodId as string, userId: req.userId! }
+        })
+        if (period) {
+          const end = new Date(period.endDate)
+          // Crear un presupuesto por cada plantilla
+          for (const t of templates) {
+            try {
+              await prisma.budget.create({
+                data: {
+                  userId: req.userId!,
+                  categoryId: t.categoryId,
+                  amount: t.amount,
+                  month: end.getMonth() + 1,
+                  year: end.getFullYear(),
+                  periodId: periodId as string,
+                }
+              })
+            } catch (e) {
+              // Ignora duplicados si ya existe
+            }
+          }
+          // Recalcular el gasto de cada presupuesto recién creado
+          budgets = await prisma.budget.findMany({
+            where: { userId: req.userId!, periodId: periodId as string },
+            include: { category: true },
+            orderBy: { createdAt: 'desc' }
+          })
+          // Actualizar el spent con las transacciones existentes del período
+          for (const b of budgets) {
+            const txs = await prisma.transaction.findMany({
+              where: {
+                userId: req.userId!,
+                periodId: periodId as string,
+                categoryId: b.categoryId,
+                type: 'expense'
+              }
+            })
+            const spent = txs.reduce((s, t) => s + Number(t.amount), 0)
+            if (spent > 0) {
+              await prisma.budget.update({
+                where: { id: b.id },
+                data: { spent: new Prisma.Decimal(spent) }
+              })
+            }
+          }
+          budgets = await prisma.budget.findMany({
+            where: { userId: req.userId!, periodId: periodId as string },
+            include: { category: true },
+            orderBy: { createdAt: 'desc' }
+          })
+        }
+      }
+    }
+
     res.json({ data: budgets })
   } catch (err) {
     console.error(err)
